@@ -11,6 +11,8 @@ import json
 import torch.nn.functional as F
 import copy
 import sys
+import torch.nn as nn
+from torch.distributions import MultivariateNormal,  Categorical
 
 INT = 0
 LONG = 1
@@ -117,9 +119,12 @@ class MlpContinuous(BaseModel):
 
 
 
-class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, action_std):
-        super(ActorCritic, self).__init__()
+class ActorCriticContinuous(nn.Module):
+    def __init__(self, config, state_dim, action_dim, action_std):
+        super(ActorCriticContinuous, self).__init__()
+        state_dim = config.state_dim
+        action_dim =config.action_dim
+        action_std = action_std
         # action mean range -1 to 1
         self.actor =  nn.Sequential(
                 nn.Linear(state_dim, 64),
@@ -139,8 +144,8 @@ class ActorCritic(nn.Module):
                 )
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
         
-    def forward(self):
-        raise NotImplementedError
+    def forward(self, x):
+        return self.actor(x)
     
     def act(self, state, memory):
         action_mean = self.actor(state)
@@ -169,3 +174,195 @@ class ActorCritic(nn.Module):
         state_value = self.critic(state)
         
         return action_logprobs, torch.squeeze(state_value), dist_entropy
+
+class ActorCriticDiscrete(nn.Module):
+    def __init__(self, config):
+        super(ActorCriticDiscrete, self).__init__()
+        state_dim = config.state_dim
+        action_dim =config.action_dim
+        action_std = action_std
+        # action mean range -1 to 1
+        self.actor =  nn.Sequential(
+                nn.Linear(state_dim, 64),
+                nn.Tanh(),
+                nn.Linear(64, 32),
+                nn.Tanh(),
+                nn.Linear(32, action_dim),
+                )
+        # critic
+        self.critic = nn.Sequential(
+                nn.Linear(state_dim, 64),
+                nn.Tanh(),
+                nn.Linear(64, 32),
+                nn.Tanh(),
+                nn.Linear(32, 1)
+                )
+        self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
+        
+    def forward(self, x):
+        raise torch.argmax(self.actor(x), -1)
+    
+    def act(self, state, memory):
+        action_weights = self.actor(state)
+        a_probs = torch.softmax(a_weights, -1)
+        dist = Categorical(a_probs)
+        action = dist.sample()
+        action_logprob = dist.log_prob(action)
+        
+        memory.states.append(state)
+        memory.actions.append(action)
+        memory.logprobs.append(action_logprob)
+        
+        return action.detach()
+    
+    def evaluate(self, state, action):   
+        action_weights = self.actor(state)
+        a_probs = torch.softmax(a_weights, -1)
+        dist = Categorical(a_probs)
+        
+        action_logprobs = dist.log_prob(torch.squeeze(action))
+        dist_entropy = dist.entropy()
+        state_value = self.critic(state)
+        
+        return action_logprobs, torch.squeeze(state_value), dist_entropy
+        
+    
+
+
+
+class DiscretePolicy(nn.Module):
+    def __init__(self, cfg):
+        super(DiscretePolicy, self).__init__()
+
+        self.net = nn.Sequential(nn.Linear(cfg.s_dim, cfg.h_dim),
+                                 nn.ReLU(),
+                                 nn.Linear(cfg.h_dim, cfg.h_dim),
+                                 nn.ReLU(),
+                                 nn.Linear(cfg.h_dim, cfg.a_dim))
+
+    def forward(self, s):
+        # [b, s_dim] => [b, a_dim]
+        a_weights = self.net(s)
+
+        return a_weights
+
+    def select_action(self, s, sample=True):
+        """
+        :param s: [s_dim]
+        :return: [1]
+        """
+        # forward to get action probs
+        # [s_dim] => [a_dim]
+        a_weights = self.forward(s)
+        a_probs = torch.softmax(a_weights, 0)
+
+        # randomly sample from normal distribution, whose mean and variance come from policy network.
+        # [a_dim] => [1]
+        a = a_probs.multinomial(1) if sample else a_probs.argmax(0, True)
+
+        return a
+
+    def get_log_prob(self, s, a):
+        """
+        :param s: [b, s_dim]
+        :param a: [b, 1]
+        :return: [b, 1]
+        """
+        # forward to get action probs
+        # [b, s_dim] => [b, a_dim]
+        a_weights = self.forward(s)
+        a_probs = torch.softmax(a_weights, -1)
+
+        # [b, a_dim] => [b, 1]
+        trg_a_probs = a_probs.gather(-1, a)
+        log_prob = torch.log(trg_a_probs)
+
+        return log_prob
+        
+
+class ContinuousPolicy(nn.Module):
+    def __init__(self, cfg):
+        super(ContinuousPolicy, self).__init__()
+
+        self.net = nn.Sequential(nn.Linear(cfg.s_dim, cfg.h_dim),
+                                 nn.ReLU(),
+                                 nn.Linear(cfg.h_dim, cfg.h_dim),
+                                 nn.ReLU())
+        self.net_mean = nn.Linear(cfg.h_dim, cfg.a_dim)
+        self.net_std = nn.Linear(cfg.h_dim, cfg.a_dim)
+
+    def forward(self, s):
+        # [b, s_dim] => [b, h_dim]
+        h = self.net(s)
+
+        # [b, h_dim] => [b, a_dim]
+        a_mean = self.net_mean(h)
+        a_log_std = self.net_std(h)
+
+        return a_mean, a_log_std
+
+    def select_action(self, s, sample=True):
+        """
+        :param s: [s_dim]
+        :return: [a_dim]
+        """
+        # forward to get action mean and log_std
+        # [s_dim] => [a_dim]
+        a_mean, a_log_std = self.forward(s)
+
+        # randomly sample from normal distribution, whose mean and variance come from policy network.
+        # [a_dim]
+        a = torch.normal(a_mean, a_log_std.exp()) if sample else a_mean
+
+        return a
+
+    def get_log_prob(self, s, a):
+        """
+        :param s: [b, s_dim]
+        :param a: [b, a_dim]
+        :return: [b, 1]
+        """
+        def normal_log_density(x, mean, log_std):
+            """
+            x ~ N(mean, std)
+            this function will return log(prob(x)) while x belongs to guassian distrition(mean, std)
+            :param x:       [b, a_dim]
+            :param mean:    [b, a_dim]
+            :param log_std: [b, a_dim]
+            :return:        [b, 1]
+            """
+            std = log_std.exp()
+            var = std.pow(2)
+            log_density = - (x - mean).pow(2) / (2 * var) - 0.5 * np.log(2 * np.pi) - log_std
+        
+            return log_density.sum(-1, keepdim=True)
+        
+        # forward to get action mean and log_std
+        # [b, s_dim] => [b, a_dim]
+        a_mean, a_log_std = self.forward(s)
+
+        # [b, a_dim] => [b, 1]
+        log_prob = normal_log_density(a, a_mean, a_log_std)
+
+        return log_prob
+    
+    
+class Value(nn.Module):
+    def __init__(self, cfg):
+        super(Value, self).__init__()
+
+        self.net = nn.Sequential(nn.Linear(cfg.s_dim, cfg.hv_dim),
+                                 nn.ReLU(),
+                                 nn.Linear(cfg.hv_dim, cfg.hv_dim),
+                                 nn.ReLU(),
+                                 nn.Linear(cfg.hv_dim, 1))
+
+    def forward(self, s):
+        """
+        :param s: [b, s_dim]
+        :return:  [b, 1]
+        """
+        value = self.net(s)
+
+        return value
+
