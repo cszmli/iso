@@ -133,6 +133,7 @@ class PPO:
             
         # Copy new weights into old policy:
         self.policy_old.load_state_dict(self.policy.state_dict())
+
         
 def PPOEngine(ppo, env):
     ############## Hyperparameters ##############
@@ -196,6 +197,7 @@ def PPOEngine(ppo, env):
             print('Episode {} \t Avg length: {} \t Avg reward: {}'.format(i_episode, avg_length, running_reward))
             running_reward = 0
             avg_length = 0
+    return ppo
             
 class ENV(object):
     def __init__(self, system_policy=None, stopping_judger=None):

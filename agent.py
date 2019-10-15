@@ -2,6 +2,8 @@ import torch
 import random
 import numpy as np 
 import copy 
+from ppo import PPOEngine
+from ppo import ENV
 
 class AIRL(object):
     def __init__(self, config=None, user_policy=None, user_reward=None, system_policy=None):
@@ -23,6 +25,10 @@ class InteractAgent(object):
                          user_reward=user_reward,
                          system_policy=system_policy
                          )
+        self.env1 = ENV(system_policy=self.system_policy, stopping_judger=None)
+        # TODO: env 2 is for the second MDP
+        self.env2 = None
+
     
     def irl_train(self, system_policy, expert_data):
         #TODO: feed system_policy and expert_data to AIRL to get the new user_policy and reward_function.
@@ -30,4 +36,6 @@ class InteractAgent(object):
 
     def system_train(self, ):
         #TODO: update the system_policy (PPO) in the second MDP  
+        env2 = None
+        ppo = PPOEngine(ppo=self.system_policy, env=env2)
         raise NotImplementedError("not finsihed yet")
