@@ -11,8 +11,8 @@ import json
 import torch.nn.functional as F
 import copy
 import sys
-import torch.nn as nn
 from torch.distributions import MultivariateNormal,  Categorical
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 INT = 0
 LONG = 1
@@ -79,67 +79,29 @@ class BaseModel(nn.Module):
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config.clip)
 
 
-class MlpDiscrete(BaseModel):
-    def __init__(self, config, input_size, output_size):
-        super(MlpDiscrete, self).__init__(config)
-        self.input_size = input_size
-        self.output_size = output_size
-        self.mid_size = (input_size + output_size)//2
-        self.body = nn.Sequential(
-            nn.Linear(self.input_size, self.mid_size)
-            nn.ReLU(),
-            nn.Linear(self.mid_size, self.output_size)
-        )
 
-    def forward(self, x):
-        h = self.body(self.cast_gpu(x))
-        prob = F.softmax(h, -1)
-        return h, prob, prob.log()
-
-    def predict(self, x):
-        prob = self.forward(x)
-        return torch.argmax(prob, -1)
-
-class MlpContinuous(BaseModel):
-    def __init__(self, config, input_size, output_size):
-        super(MlpContinuous, self).__init__(config)
-        self.input_size = input_size
-        self.output_size = output_size
-        self.mid_size = (input_size + output_size)//2
-        self.body = nn.Sequential(
-            nn.Linear(self.input_size, self.mid_size)
-            nn.ReLU(),
-            nn.Linear(self.mid_size, self.output_size)
-        )
-
-    def forward(self, x):
-        h = self.body(self.cast_gpu(x))
-        prob = F.softmax(h, -1)
-        return h, prob, prob.log()
-
-
-
-class ActorCriticContinuous(nn.Module):
-    def __init__(self, config, state_dim, action_dim, action_std):
-        super(ActorCriticContinuous, self).__init__()
+class ActorCriticContinuous(BaseModel):
+    def __init__(self, config):
+        super(ActorCriticContinuous, self).__init__(config)
         state_dim = config.state_dim
         action_dim =config.action_dim
-        action_std = action_std
+        action_std = config.action_std
         # action mean range -1 to 1
+        # std is fixed
         self.actor =  nn.Sequential(
                 nn.Linear(state_dim, 64),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(64, 32),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(32, action_dim),
                 nn.Tanh()
                 )
         # critic
         self.critic = nn.Sequential(
                 nn.Linear(state_dim, 64),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(64, 32),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(32, 1)
                 )
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
@@ -175,26 +137,26 @@ class ActorCriticContinuous(nn.Module):
         
         return action_logprobs, torch.squeeze(state_value), dist_entropy
 
-class ActorCriticDiscrete(nn.Module):
+class ActorCriticDiscrete(BaseModel):
     def __init__(self, config):
-        super(ActorCriticDiscrete, self).__init__()
+        super(ActorCriticDiscrete, self).__init__(config)
         state_dim = config.state_dim
         action_dim =config.action_dim
-        action_std = action_std
+        action_std = config.action_std
         # action mean range -1 to 1
         self.actor =  nn.Sequential(
                 nn.Linear(state_dim, 64),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(64, 32),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(32, action_dim),
                 )
         # critic
         self.critic = nn.Sequential(
                 nn.Linear(state_dim, 64),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(64, 32),
-                nn.Tanh(),
+                nn.ReLU(),
                 nn.Linear(32, 1)
                 )
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
@@ -226,19 +188,48 @@ class ActorCriticDiscrete(nn.Module):
         
         return action_logprobs, torch.squeeze(state_value), dist_entropy
         
+
+class RewardModule(BaseModel):
+    """
+    label: 1 for real, 0 for generated
+    """
+    def __init__(self, config):
+        super(RewardModule, self).__init__(config)
+        
+        self.gamma = config.gamma
+        self.g = nn.Sequential(nn.Linear(config.state_dim+config.action_dim, 100),
+                               nn.ReLU(),
+                               nn.Linear(config.hidden_dim, 1))
+        self.h = nn.Sequential(nn.Linear(config.state_dim, config.hidden_dim),
+                               nn.ReLU(),
+                               nn.Linear(config.hidden_dim, 1))
+    
+    def forward(self, s, a, next_s):
+        """
+        :param s: [b, s_dim]
+        :param a: [b, a_dim]
+        :param next_s: [b, s_dim]
+        :return:  [b, 1]
+        """
+        weights = self.g(torch.cat([s,a], -1)) + self.gamma * self.h(next_s) - self.h(s)
+        return weights
     
 
+##########################################################
+##########################################################
+##########################################################
+##########################################################
 
 
 class DiscretePolicy(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, config):
         super(DiscretePolicy, self).__init__()
 
-        self.net = nn.Sequential(nn.Linear(cfg.s_dim, cfg.h_dim),
+        self.net = nn.Sequential(nn.Linear(config.s_dim, config.h_dim),
                                  nn.ReLU(),
-                                 nn.Linear(cfg.h_dim, cfg.h_dim),
+                                 nn.Linear(config.h_dim, config.h_dim),
                                  nn.ReLU(),
-                                 nn.Linear(cfg.h_dim, cfg.a_dim))
+                                 nn.Linear(config.h_dim, config.a_dim))
 
     def forward(self, s):
         # [b, s_dim] => [b, a_dim]
@@ -281,15 +272,15 @@ class DiscretePolicy(nn.Module):
         
 
 class ContinuousPolicy(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, config):
         super(ContinuousPolicy, self).__init__()
 
-        self.net = nn.Sequential(nn.Linear(cfg.s_dim, cfg.h_dim),
+        self.net = nn.Sequential(nn.Linear(config.s_dim, config.h_dim),
                                  nn.ReLU(),
-                                 nn.Linear(cfg.h_dim, cfg.h_dim),
+                                 nn.Linear(config.h_dim, config.h_dim),
                                  nn.ReLU())
-        self.net_mean = nn.Linear(cfg.h_dim, cfg.a_dim)
-        self.net_std = nn.Linear(cfg.h_dim, cfg.a_dim)
+        self.net_mean = nn.Linear(config.h_dim, config.a_dim)
+        self.net_std = nn.Linear(config.h_dim, config.a_dim)
 
     def forward(self, s):
         # [b, s_dim] => [b, h_dim]
@@ -348,14 +339,14 @@ class ContinuousPolicy(nn.Module):
     
     
 class Value(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, config):
         super(Value, self).__init__()
 
-        self.net = nn.Sequential(nn.Linear(cfg.s_dim, cfg.hv_dim),
+        self.net = nn.Sequential(nn.Linear(config.s_dim, config.hv_dim),
                                  nn.ReLU(),
-                                 nn.Linear(cfg.hv_dim, cfg.hv_dim),
+                                 nn.Linear(config.hv_dim, config.hv_dim),
                                  nn.ReLU(),
-                                 nn.Linear(cfg.hv_dim, 1))
+                                 nn.Linear(config.hv_dim, 1))
 
     def forward(self, s):
         """
