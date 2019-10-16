@@ -151,8 +151,9 @@ def PPOEngine(ppo, env):
     return ppo
             
 class ENV(object):
-    def __init__(self, system_policy=None, stopping_judger=None):
-        self.system_policy = system_policy
+    def __init__(self, system_agent=None, stopping_judger=None):
+        # system_agent: PPO agent
+        self.system_policy = system_agent.policy
         self.stopping_judger = stopping_judger
 
     def reset(self):
@@ -168,6 +169,9 @@ class ENV(object):
         # TODO: if not, return state_false, reward, Terminal
         # Q: how to decide if two states are linkable and how to select a linkable state from the state space?
         raise NotImplementedError("not finished yet")
+
+    def render(self):
+        raise NotImplementedError
 
 
     

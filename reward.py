@@ -14,7 +14,7 @@ import logging
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class RewardEstimator(object):
-    def __init__(self, args, manager, config, irl_model, pretrain=False, inference=False):
+    def __init__(self, args=None, manager=None, config=None, irl_model=None, pretrain=False, inference=False):
         
         self.irl = irl_model
         self.bce_loss = nn.BCEWithLogitsLoss()
