@@ -6,7 +6,7 @@ from network import ActorCriticContinuous, ActorCriticDiscrete
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class Memory:
+class Memory(object):
     def __init__(self):
         self.actions = []
         self.states = []
@@ -23,18 +23,19 @@ class Memory:
 
 
 
-class PPO:
-    def __init__(self, config, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip):
-        self.lr = lr
-        self.betas = betas
-        self.gamma = gamma
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epochs
+class PPO(object):
+    # def __init__(self, config, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip):
+    def __init__(self, config, policy_):
+        self.lr = config.lr
+        self.betas = config.betas
+        self.gamma = config.gamma
+        self.eps_clip = config.eps_clip
+        self.K_epochs = config.K_epochs
         
-        self.policy = ActorCriticContinuous(config).to(device)
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)
+        self.policy = policy_
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.lr, betas=self.betas)
         
-        self.policy_old = ActorCriticContinuous(config).to(device)
+        self.policy_old = policy_
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
