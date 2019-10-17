@@ -9,7 +9,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 from reward import RewardEstimator
 
 class AIRL(object):
-    def __init__(self, config=None, user_agent=None, user_reward=None, system_agent=None, manager=None):
+    def __init__(self, config=None, user_agent=None, user_reward=None, system_env=None, manager=None):
         # the parameters of user policy and user reward will not be loaded. The modules are just copies to keep the structure of 
         # the modules.
         # This is for the alternative training between the reward model and the PPO agent
@@ -18,7 +18,7 @@ class AIRL(object):
         self.config = config
         self.user_agent = user_agent
         self.reward_module = user_reward
-        self.system_agent = system_agent
+        self.env = system_env
         self.manager = manager
         self.expert_data_train = self.creat_expert_data()
 
@@ -54,7 +54,7 @@ class AIRL(object):
         
         memory = Memory()
         policy_buffer = Memory()
-        env = ENV(system_agent=self.system_agent, stopping_judger=None)
+        env = self.env
         ppo = copy.deepcopy(self.user_agent)
         ############### Training ####################
         # logging variables
@@ -102,27 +102,28 @@ class InteractAgent(object):
     def __init__(self, config=None, user_agent=None, user_reward=None, system_agent=None):
         self.config = config
         self.user_agent = user_agent # this should be a PPO agent with discrete action space
-        self.reward_agent = user_reward  # this is an MLP taking as input the state representation
+        self.reward_agent = user_reward  # this is an Reward Estimator taking as input the state representation
         self.system_agent = system_agent # this should be a PPO agent with continuous action space
+        self.env1 = ENV(system_agent=self.system_agent, reward_agent=self.reward_agent, stopping_judger=None)
         self.airl = AIRL(config=config, 
                          user_agent=copy.deepcopy(self.user_agent), 
-                         user_reward=self.reward_module,
-                         system_agent=self.system_agent
-                         )
-        self.env1 = ENV(system_agent=self.system_agent, stopping_judger=None)
+                         user_reward=self.reward_agent,
+                         system_env=self.env1
+                        )
         # TODO: env 2 is for the second MDP
-        self.env2 = None
+        self.env2 = ENV(user_agent=self.user_agent, reward_agent=self.reward_agent, stopping_judger=None)
 
     
     def irl_train(self, system_policy, expert_data):
         #TODO: feed system_policy and expert_data to AIRL to get the new user_policy and reward_function.
-        raise NotImplementedError("not finsihed yet")
+        self.airl.train()
+        # raise NotImplementedError("not finsihed yet")
 
     def system_train(self, ):
         #TODO: update the system_policy (PPO) in the second MDP  
-        env2 = None
-        ppo = PPOEngine(ppo=self.system_policy, env=env2)
-        raise NotImplementedError("not finsihed yet")
+        env2 = self.env2
+        ppo = PPOEngine(ppo=self.system_agent, env=env2)
+        # raise NotImplementedError("not finsihed yet")
 
 
 def main(config):

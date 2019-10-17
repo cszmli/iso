@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 import numpy as np
 from network import ActorCriticContinuous, ActorCriticDiscrete
+import copy
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -43,6 +44,9 @@ class PPO(object):
     def select_action(self, state, memory):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
         return self.policy_old.act(state, memory).cpu().data.numpy().flatten()
+    
+    def infer_action(self, state):
+        return self.policy(state)
     
     def update(self, memory):
         # Monte Carlo estimate of rewards:
@@ -150,28 +154,68 @@ def PPOEngine(ppo, env):
             avg_length = 0
     return ppo
             
+
 class ENV(object):
-    def __init__(self, system_agent=None, stopping_judger=None):
-        # system_agent: PPO agent
-        self.system_policy = system_agent.policy
+    def __init__(self, user_agent=None, system_agent=None, reward_agent=None, stopping_judger=None):
+        self.user_agent = user_agent
+        self.reward_agent = reward_agent
         self.stopping_judger = stopping_judger
+        self.max_step = 20
+        self.counter = 0
+        if user_agent is not None and system_agent is not None:
+            raise ValueError("user_agent and system agent can not be both None or NotNone")
+        if user_agent is not None:
+            self.policy = user_agent.policy
+        if system_agent is not None:
+            self.policy = system_agent.policy
 
     def reset(self):
-        raise NotImplementedError("not finished yet")
+        self.counter = 0
+        # raise NotImplementedError("not finished yet")
 
-    def load_system(self, new_policy):
-        self.system_policy.load_state_dict(new_policy.state_dict())
+    def load_user(self, new_policy):
+        self.policy.load_state_dict(new_policy.state_dict())
 
-    def step(self, state, action):
+    def step_system(self, state, action):
         # TODO: feed state+action to self.system_policy and get state_next
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
         # TODO: if not, return state_false, reward, Terminal
         # Q: how to decide if two states are linkable and how to select a linkable state from the state space?
-        raise NotImplementedError("not finished yet")
+        # This is just a simplified version without state transition constraints.
 
-    def render(self):
-        raise NotImplementedError
+        state_action = torch.cat([state, action], -1)
+        reward = self.reward_agent(state)
+        if self.counter<self.max_step:
+            next_state = self.policy.infer_action(state_action)
+            is_terminal = False
+        else:
+            next_state = copy.deepcopy(state)
+            is_terminal = True
+        self.counter += 1
+        return state, action, next_state, reward, is_terminal
+
+    def step_user(self, state, action, state_next):
+        # TODO: feed state+action to self.system_policy and get state_next
+        # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
+        # TODO: if yes, return state_next, reward(state), Terminal
+        # TODO: if not, return state_false, reward, Terminal
+        # Q: how to decide if two states are linkable and how to select a linkable state from the state space?
+        
+        # This is just a simplified version without state transition constraints.
+        # state_action = torch.cat([state, action], -1)
+        reward = self.reward_agent(state)
+        if self.counter<self.max_step:
+            next_state_a = self.policy.infer_action(state_next)
+            # TODO: convert a to onehot_embedding with dim=action_num
+            next_state = torch.cat([state_next, next_state_a])
+            is_terminal = False
+        else:
+            next_state = copy.deepcopy(state)
+            is_terminal = True
+        self.counter += 1
+        return state, action, next_state, reward, is_terminal
+
 
 
     

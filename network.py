@@ -106,8 +106,8 @@ class ActorCriticContinuous(BaseModel):
                 )
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
         
-    def forward(self, x):
-        return self.actor(x)
+    def forward(self, state):
+        return self.actor(state)
     
     def act(self, state, memory):
         action_mean = self.actor(state)
