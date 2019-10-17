@@ -95,7 +95,7 @@ class AIRL(object):
             
             avg_length += t
 
-        return ppo
+        return ppo, self.reward_module
         
 class InteractAgent(object):
     # this is for the whole trianing process: reward shaping, system optimization
@@ -104,34 +104,46 @@ class InteractAgent(object):
         self.user_agent = user_agent # this should be a PPO agent with discrete action space
         self.reward_agent = user_reward  # this is an Reward Estimator taking as input the state representation
         self.system_agent = system_agent # this should be a PPO agent with continuous action space
-        self.env1 = ENV(system_agent=self.system_agent, reward_agent=self.reward_agent, stopping_judger=None)
+        self.env1 = ENV(system_agent=self.system_agent, reward_agent=self.reward_agent, stopping_judger=None, config=config)
         self.airl = AIRL(config=config, 
                          user_agent=copy.deepcopy(self.user_agent), 
                          user_reward=self.reward_agent,
                          system_env=self.env1
                         )
         # TODO: env 2 is for the second MDP
-        self.env2 = ENV(user_agent=self.user_agent, reward_agent=self.reward_agent, stopping_judger=None)
+        self.env2 = ENV(user_agent=self.user_agent, reward_agent=self.reward_agent, stopping_judger=None, config=config)
 
-    
+    def ready_for_irl(self, ):
+        # TODO: load reward_agent; load Env with system policy; load (generate) expert data
+        raise NotImplementedError
+
+    def ready_for_system_opt(self):
+        # TODO: load reward_agent; load Env with user policy
+        raise NotImplementedError
+        
+
     def irl_train(self, system_policy, expert_data):
         #TODO: feed system_policy and expert_data to AIRL to get the new user_policy and reward_function.
-        self.airl.train()
-        # raise NotImplementedError("not finsihed yet")
+        user_agent, reward_module = self.airl.train()
+        self.user_agent.policy.load_state_dict(user_agent.policy.state_dict())
+        self.reward_agent.irl.load_state_dict(reward_module.irl.state_dict())
 
     def system_train(self, ):
         #TODO: update the system_policy (PPO) in the second MDP  
         env2 = self.env2
         ppo = PPOEngine(ppo=self.system_agent, env=env2)
-        # raise NotImplementedError("not finsihed yet")
+        self.system_agent = ppo
+
 
 
 def main(config):
     irl_model = RewardModule(config).to(device=device)   # this is the reward model only, which will be fed to RewardEstimator.
     reward_agent = RewardEstimator(config=config, irl_model=irl_model)
+
     user_policy = ActorCriticDiscrete(config).to(device=device)
-    system_policy = ActorCriticContinuous(config).to(device=device)
     user_ppo = PPO(config, user_policy)
+
+    system_policy = ActorCriticContinuous(config).to(device=device)
     system_ppo = PPO(config, system_policy)
     
     main_agent = InteractAgent(config=config,

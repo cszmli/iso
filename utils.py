@@ -8,8 +8,14 @@ import os
 class cfg():
     def __init__(self):
         ppo_config = cfg_ppo()
-        state_dim = 392
-        action_dim = 300
+        state_dim = 10
+        action_dim = 5
+        action_std = 0.5
+        op = 'adam'
+        clip = 10.0
+        gamma = 0.99
+        max_step = 20
+
 
 
 

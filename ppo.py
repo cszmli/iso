@@ -156,18 +156,23 @@ def PPOEngine(ppo, env):
             
 
 class ENV(object):
-    def __init__(self, user_agent=None, system_agent=None, reward_agent=None, stopping_judger=None):
+    def __init__(self, user_agent=None, system_agent=None, reward_agent=None, stopping_judger=None, config=None):
         self.user_agent = user_agent
         self.reward_agent = reward_agent
         self.stopping_judger = stopping_judger
-        self.max_step = 20
+        self.config = config
+        self.max_step = config.max_step
         self.counter = 0
+        self.env_type = None
         if user_agent is not None and system_agent is not None:
             raise ValueError("user_agent and system agent can not be both None or NotNone")
         if user_agent is not None:
             self.policy = user_agent.policy
+            self.env_type = 'user_step'
         if system_agent is not None:
             self.policy = system_agent.policy
+            self.env_type = 'system_step'
+
 
     def reset(self):
         self.counter = 0
@@ -176,7 +181,15 @@ class ENV(object):
     def load_user(self, new_policy):
         self.policy.load_state_dict(new_policy.state_dict())
 
-    def step_system(self, state, action):
+    def step(self, state=None, action=None, state_next=None):
+        if self.env_type == 'user_step':
+            self.step_user(state=state, action=action, state_next=state_next)
+        elif self.env_type == 'system_step':
+            self.step_system(state=state, action=action)
+        else:
+            raise ValueError("No such env_type: {}".format(self.env_type))
+
+    def step_system(self, state=None, action=None):
         # TODO: feed state+action to self.system_policy and get state_next
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
@@ -195,15 +208,14 @@ class ENV(object):
         self.counter += 1
         return state, action, next_state, reward, is_terminal
 
-    def step_user(self, state, action, state_next):
-        # TODO: feed state+action to self.system_policy and get state_next
+    def step_user(self, state=None, action=None, state_next=None):
+        # TODO: feed (state, action, state_next) to self.user_policy and get state_next' (state_next'=(state', action'))
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
         # TODO: if not, return state_false, reward, Terminal
         # Q: how to decide if two states are linkable and how to select a linkable state from the state space?
         
         # This is just a simplified version without state transition constraints.
-        # state_action = torch.cat([state, action], -1)
         reward = self.reward_agent(state)
         if self.counter<self.max_step:
             next_state_a = self.policy.infer_action(state_next)
@@ -215,6 +227,14 @@ class ENV(object):
             is_terminal = True
         self.counter += 1
         return state, action, next_state, reward, is_terminal
+
+    def embedding_act(self, labels):
+        num_classes = self.config.action_dim
+        if type(labels)==list:
+            labels = torch.LongTensor(labels)
+        y = torch.eye(num_classes) 
+        return y[labels] 
+
 
 
 

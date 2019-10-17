@@ -81,28 +81,25 @@ class BaseModel(nn.Module):
 
 
 class ActorCriticContinuous(BaseModel):
+    # This is for the system policy, f(state, action) -> state_next
     def __init__(self, config):
         super(ActorCriticContinuous, self).__init__(config)
-        state_dim = config.state_dim
-        action_dim =config.action_dim
+        state_dim = config.state_dim + config.action_dim    # torch.cat([state,action], -1)
+        action_dim =config.state_dim
         action_std = config.action_std
         # action mean range -1 to 1
         # std is fixed
         self.actor =  nn.Sequential(
-                nn.Linear(state_dim, 64),
+                nn.Linear(state_dim, state_dim),
                 nn.ReLU(),
-                nn.Linear(64, 32),
-                nn.ReLU(),
-                nn.Linear(32, action_dim),
+                nn.Linear(state_dim, action_dim),
                 nn.Tanh()
                 )
         # critic
         self.critic = nn.Sequential(
-                nn.Linear(state_dim, 64),
+                nn.Linear(state_dim, state_dim),
                 nn.ReLU(),
-                nn.Linear(64, 32),
-                nn.ReLU(),
-                nn.Linear(32, 1)
+                nn.Linear(state_dim, 1)
                 )
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
         
@@ -137,36 +134,29 @@ class ActorCriticContinuous(BaseModel):
         
         return action_logprobs, torch.squeeze(state_value), dist_entropy
 
-class ActorCriticDiscrete(BaseModel):
+class ActorCriticDiscrete(BaseModel):  # f(state) -> action
     def __init__(self, config):
         super(ActorCriticDiscrete, self).__init__(config)
         state_dim = config.state_dim
         action_dim =config.action_dim
-        action_std = config.action_std
-        # action mean range -1 to 1
         self.actor =  nn.Sequential(
-                nn.Linear(state_dim, 64),
+                nn.Linear(state_dim, 10),
                 nn.ReLU(),
-                nn.Linear(64, 32),
-                nn.ReLU(),
-                nn.Linear(32, action_dim),
+                nn.Linear(10, action_dim),
                 )
         # critic
         self.critic = nn.Sequential(
-                nn.Linear(state_dim, 64),
+                nn.Linear(state_dim, 10),
                 nn.ReLU(),
-                nn.Linear(64, 32),
-                nn.ReLU(),
-                nn.Linear(32, 1)
+                nn.Linear(10, 1)
                 )
-        self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
         
     def forward(self, x):
         raise torch.argmax(self.actor(x), -1)
     
     def act(self, state, memory):
         action_weights = self.actor(state)
-        a_probs = torch.softmax(a_weights, -1)
+        a_probs = torch.softmax(action_weights, -1)
         dist = Categorical(a_probs)
         action = dist.sample()
         action_logprob = dist.log_prob(action)
@@ -179,39 +169,39 @@ class ActorCriticDiscrete(BaseModel):
     
     def evaluate(self, state, action):   
         action_weights = self.actor(state)
-        a_probs = torch.softmax(a_weights, -1)
+        a_probs = torch.softmax(action_weights, -1)
         dist = Categorical(a_probs)
         
         action_logprobs = dist.log_prob(torch.squeeze(action))
         dist_entropy = dist.entropy()
         state_value = self.critic(state)
-        
         return action_logprobs, torch.squeeze(state_value), dist_entropy
         
 
 class RewardModule(BaseModel):
     """
     label: 1 for real, 0 for generated
+    f(s, a, s') = g(s) + \gamma * h(s') - h(s) 
     """
     def __init__(self, config):
         super(RewardModule, self).__init__(config)
-        
         self.gamma = config.gamma
-        self.g = nn.Sequential(nn.Linear(config.state_dim+config.action_dim, 100),
+        self.g = nn.Sequential(nn.Linear(config.state_dim, config.state_dim),
                                nn.ReLU(),
-                               nn.Linear(config.hidden_dim, 1))
-        self.h = nn.Sequential(nn.Linear(config.state_dim, config.hidden_dim),
+                               nn.Linear(config.state_dim, 1))
+        self.h = nn.Sequential(nn.Linear(config.state_dim, config.state_dim),
                                nn.ReLU(),
-                               nn.Linear(config.hidden_dim, 1))
+                               nn.Linear(config.state_dim, 1))
     
     def forward(self, s, a, next_s):
         """
+        f(s, a, s') = g(s) + \gamma * h(s') - h(s) 
         :param s: [b, s_dim]
         :param a: [b, a_dim]
         :param next_s: [b, s_dim]
         :return:  [b, 1]
         """
-        weights = self.g(torch.cat([s,a], -1)) + self.gamma * self.h(next_s) - self.h(s)
+        weights = self.g(s) + self.gamma * self.h(next_s) - self.h(s)
         return weights
     
 
