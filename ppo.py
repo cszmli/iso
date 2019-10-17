@@ -89,7 +89,38 @@ class PPO(object):
         # Copy new weights into old policy:
         self.policy_old.load_state_dict(self.policy.state_dict())
 
-        
+def Data_Generator(ppo, env, config):
+     ############## Hyperparameters ##############
+    max_episodes = config.data_size        # max training episodes
+    max_timesteps = config.max_step        # max timesteps in one episode
+
+    memory = Memory()
+    ############### Training ####################
+    # logging variables
+    running_reward = 0
+    avg_length = 0
+    time_step = 0
+    
+    # training loop
+    for i_episode in range(1, max_episodes+1):
+        state = env.reset()
+        for t in range(max_timesteps):
+            time_step +=1
+            # Running policy_old:
+            action = ppo.infer_action(state)
+            state, action, next_state, reward, done = env.step(state=state, action=action)
+            
+            # Saving reward and is_terminals:
+            memory.rewards.append(reward)
+            memory.is_terminals.append(done)
+            
+            if done:
+                break
+    return memory
+
+            
+
+
 def PPOEngine(ppo, env):
     ############## Hyperparameters ##############
     env_name = "BipedalWalker-v2"
@@ -157,7 +188,6 @@ def PPOEngine(ppo, env):
 
 class ENV(object):
     def __init__(self, user_agent=None, system_agent=None, reward_agent=None, stopping_judger=None, config=None):
-        self.user_agent = user_agent
         self.reward_agent = reward_agent
         self.stopping_judger = stopping_judger
         self.config = config
@@ -176,7 +206,8 @@ class ENV(object):
 
     def reset(self):
         self.counter = 0
-        # raise NotImplementedError("not finished yet")
+        state_mean = torch.FloatTensor(1, 10).uniform(-1, 1).to(device)
+        return state_mean
 
     def load_user(self, new_policy):
         self.policy.load_state_dict(new_policy.state_dict())

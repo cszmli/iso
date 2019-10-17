@@ -2,7 +2,7 @@ import torch
 import random
 import numpy as np 
 import copy 
-from ppo import PPOEngine, ENV, PPO, Memory
+from ppo import PPOEngine, ENV, PPO, Memory, Data_Generator
 from utils import cfg
 from network import RewardModule, ActorCriticContinuous, ActorCriticDiscrete
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -17,7 +17,7 @@ class AIRL(object):
         # TODO: there should be a function to create the expert data with initial system and the ground truth reward
         self.config = config
         self.user_agent = user_agent
-        self.reward_module = user_reward
+        self.reward_agent = user_reward
         self.env = system_env
         self.manager = manager
         self.expert_data_train = self.creat_expert_data()
@@ -83,7 +83,7 @@ class AIRL(object):
                     memory.clear_memory()
 
                 if time_step % update_timestep_reward == 0:
-                    self.reward_module.train_irl(policy_buffer, time_step)
+                    self.reward_agent.train_irl(policy_buffer, time_step)
                     policy_buffer.clear_memory()
 
                 
@@ -95,7 +95,7 @@ class AIRL(object):
             
             avg_length += t
 
-        return ppo, self.reward_module
+        return ppo, self.reward_agent
         
 class InteractAgent(object):
     # this is for the whole trianing process: reward shaping, system optimization
@@ -113,13 +113,25 @@ class InteractAgent(object):
         # TODO: env 2 is for the second MDP
         self.env2 = ENV(user_agent=self.user_agent, reward_agent=self.reward_agent, stopping_judger=None, config=config)
 
-    def ready_for_irl(self, ):
+    def ready_for_irl(self):
         # TODO: load reward_agent; load Env with system policy; load (generate) expert data
         raise NotImplementedError
 
     def ready_for_system_opt(self):
         # TODO: load reward_agent; load Env with user policy
         raise NotImplementedError
+
+    def optimizer_optimal_user_policy(self, reward_truth=None, system_agent=None):
+        # This function is used to optimize the user policy given ground truth reward function and a system policy (env)
+        # reward_truth is not the reward agent and it is just a randomly initialized MLP which takes state as input and output reward value.
+        env = ENV(system_agent=system_agent, reward_agent=reward_truth, stopping_judger=None, config=self.config)
+        ppo = PPOEngine(ppo=self.system_agent, env=env)
+        return ppo
+
+    def generate_expert_data(self, user_policy, env):
+        memory = Data_Generator(ppo, env, self.config)
+        return memory
+
         
 
     def irl_train(self, system_policy, expert_data):

@@ -15,6 +15,7 @@ class cfg():
         clip = 10.0
         gamma = 0.99
         max_step = 20
+        data_size = 50000
 
 
 

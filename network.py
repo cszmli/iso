@@ -172,7 +172,7 @@ class ActorCriticDiscrete(BaseModel):  # f(state) -> action
         a_probs = torch.softmax(action_weights, -1)
         dist = Categorical(a_probs)
         
-        action_logprobs = dist.log_prob(torch.squeeze(action))
+        action_logprobs = dist.log_prob(action)
         dist_entropy = dist.entropy()
         state_value = self.critic(state)
         return action_logprobs, torch.squeeze(state_value), dist_entropy
