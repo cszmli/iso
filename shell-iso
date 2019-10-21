@@ -1,0 +1,10 @@
+#!/bin/bash
+#SBATCH --job-name=iso
+#SBATCH --output=./slurm_logs/iso_debug.log
+#SBATCH -p cpu
+#SBATCH --mem=8G
+#SBATCH --time=15:10:00
+
+hostname
+source activate py36
+python -u agent.py

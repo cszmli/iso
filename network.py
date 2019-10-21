@@ -40,6 +40,7 @@ def cast_type(var, dtype, use_gpu):
 
 class BaseModel(nn.Module):
     def __init__(self, config):
+        super(BaseModel, self).__init__()
         self.config = config
         self.use_gpu = config.use_gpu
     
@@ -66,14 +67,14 @@ class BaseModel(nn.Module):
         if self.config.op == 'adam':
             print("Use adam")
             return torch.optim.Adam(filter(lambda p: p.requires_grad,
-                                           self.parameters()), lr=self.config.init_lr, betas=(0.5, 0.999))
+                                           self.parameters()), lr=self.config.lr, betas=(0.5, 0.999))
         elif self.config.op == 'sgd':
             print("Use SGD")
-            return torch.optim.SGD(self.parameters(), lr=self.config.init_lr,
+            return torch.optim.SGD(self.parameters(), lr=self.config.lr,
                                    momentum=self.config.momentum)
         elif self.config.op == 'rmsprop':
             print("RMSProp")
-            return torch.optim.RMSprop(self.parameters(), lr=self.config.init_lr,
+            return torch.optim.RMSprop(self.parameters(), lr=self.config.lr,
                                        momentum=self.config.momentum)
     def clip_gradient(self):
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config.clip)
@@ -152,7 +153,7 @@ class ActorCriticDiscrete(BaseModel):  # f(state) -> action
                 )
         
     def forward(self, x):
-        raise torch.argmax(self.actor(x), -1)
+        return torch.argmax(self.actor(x), -1)
     
     def act(self, state, memory):
         action_weights = self.actor(state)
@@ -193,7 +194,7 @@ class RewardModule(BaseModel):
                                nn.ReLU(),
                                nn.Linear(config.state_dim, 1))
     
-    def forward(self, s, a, next_s):
+    def forward(self, s=None, a=None, next_s=None):
         """
         f(s, a, s') = g(s) + \gamma * h(s') - h(s) 
         :param s: [b, s_dim]
@@ -203,7 +204,32 @@ class RewardModule(BaseModel):
         """
         weights = self.g(s) + self.gamma * self.h(next_s) - self.h(s)
         return weights
-    
+
+    def reward_true(self, s=None):
+        # this func is for the ground truth reward. The ground truth will be sampled separately from the reward estimator
+        return self.g(s)
+
+
+class RewardTruth(BaseModel):
+    """
+    label: 1 for real, 0 for generated
+    f(s, a, s') = g(s) + \gamma * h(s') - h(s) 
+    """
+    def __init__(self, config):
+        super(RewardTruth, self).__init__(config)
+        self.g = nn.Sequential(nn.Linear(config.state_dim, config.state_dim),
+                               nn.ReLU(),
+                               nn.Linear(config.state_dim, 1),
+                               nn.Sigmoid())
+
+    def forward(self, s=None, a=None, next_s=None, log_prob=None):
+        return torch.mean(s*s)
+        # return self.reward_true(s)
+
+    def reward_true(self, s=None):
+        # this func is for the ground truth reward. The ground truth will be sampled separately from the reward estimator
+        return self.g(s)
+ 
 
 ##########################################################
 ##########################################################

@@ -4,6 +4,7 @@ from torch.distributions import MultivariateNormal
 import numpy as np
 from network import ActorCriticContinuous, ActorCriticDiscrete
 import copy
+import logging
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -14,6 +15,9 @@ class Memory(object):
         self.logprobs = []
         self.rewards = []
         self.is_terminals = []
+        self.states_next = []
+
+
     
     def clear_memory(self):
         del self.actions[:]
@@ -21,6 +25,20 @@ class Memory(object):
         del self.logprobs[:]
         del self.rewards[:]
         del self.is_terminals[:]
+        del self.states_next[:]
+
+
+
+class ExpertMemory(object):
+    def __init__(self):
+        self.states = []
+        self.actions = []
+        self.states_next = []
+
+    def clear_memory(self):
+        del self.actions[:]
+        del self.states[:]
+        del self.states_next[:]
 
 
 
@@ -43,7 +61,7 @@ class PPO(object):
     
     def select_action(self, state, memory):
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
-        return self.policy_old.act(state, memory).cpu().data.numpy().flatten()
+        return self.policy_old.act(state, memory)
     
     def infer_action(self, state):
         return self.policy(state)
@@ -89,12 +107,13 @@ class PPO(object):
         # Copy new weights into old policy:
         self.policy_old.load_state_dict(self.policy.state_dict())
 
-def Data_Generator(ppo, env, config):
+def Data_Generator(ppo, env, config, data_id):
      ############## Hyperparameters ##############
-    max_episodes = config.data_size        # max training episodes
+
+    data_size = config.data_size[data_id]        # expert data size
     max_timesteps = config.max_step        # max timesteps in one episode
 
-    memory = Memory()
+    memory = []
     ############### Training ####################
     # logging variables
     running_reward = 0
@@ -102,17 +121,20 @@ def Data_Generator(ppo, env, config):
     time_step = 0
     
     # training loop
-    for i_episode in range(1, max_episodes+1):
+    while time_step<data_size:
         state = env.reset()
         for t in range(max_timesteps):
             time_step +=1
             # Running policy_old:
             action = ppo.infer_action(state)
             state, action, next_state, reward, done = env.step(state=state, action=action)
-            
-            # Saving reward and is_terminals:
-            memory.rewards.append(reward)
-            memory.is_terminals.append(done)
+            state = next_state
+            # memory.states.append(state)
+            # memory.actions.append(action)
+            # memory.states_next.append(next_state)
+            # memory.rewards.append(reward)
+            # memory.is_terminals.append(done)
+            memory.append((state, action, next_state))
             
             if done:
                 break
@@ -121,23 +143,13 @@ def Data_Generator(ppo, env, config):
             
 
 
-def PPOEngine(ppo, env):
+def PPOEngine(ppo, env, config):
     ############## Hyperparameters ##############
-    env_name = "BipedalWalker-v2"
-    render = False
-    solved_reward = 300         # stop training if avg_reward > solved_reward
-    log_interval = 20           # print avg reward in the interval
-    max_episodes = 10000        # max training episodes
+    log_interval = 100           # print avg reward in the interval
+    max_episodes = 100000        # max training episodes
     max_timesteps = 1500        # max timesteps in one episode
     
     update_timestep = 4000      # update policy every n timesteps
-    action_std = 0.5            # constant std for action distribution (Multivariate Normal)
-    K_epochs = 80               # update policy for K epochs
-    eps_clip = 0.2              # clip parameter for PPO
-    gamma = 0.99                # discount factor
-    
-    lr = 0.0003                 # parameters for Adam optimizer
-    betas = (0.9, 0.999)
     
     memory = Memory()
     ############### Training ####################
@@ -153,42 +165,44 @@ def PPOEngine(ppo, env):
             time_step +=1
             # Running policy_old:
             action = ppo.select_action(state, memory)
-            state, reward, done, _ = env.step(action)
-            
+            log_prob = memory.logprobs[-1]
+            state_ori = state[:,:config.state_dim]
+            state, action, next_state, reward, done = env.step(state=state,
+                                                               action=action, 
+                                                               log_prob=log_prob,
+                                                               state_ori=state_ori)
             # Saving reward and is_terminals:
+            # print("###################")
+            # print(state, action, next_state, reward)
+            memory.states_next.append(next_state)
             memory.rewards.append(reward)
             memory.is_terminals.append(done)
-            
+            state = next_state
             # update if its time
             if time_step % update_timestep == 0:
                 ppo.update(memory)
                 memory.clear_memory()
                 time_step = 0
             running_reward += reward
-            if render:
-                env.render()
             if done:
                 break
         
         avg_length += t
-
-        if i_episode % 500 == 0:
-            torch.save(ppo.policy.state_dict(), './PPO_continuous_{}.pth'.format(env_name))
-            
         # logging
         if i_episode % log_interval == 0:
-            avg_length = int(avg_length/log_interval)
-            running_reward = int((running_reward/log_interval))
+            avg_length = avg_length/log_interval
+            running_reward = running_reward/log_interval
             
-            print('Episode {} \t Avg length: {} \t Avg reward: {}'.format(i_episode, avg_length, running_reward))
+            logging.info('Episode {}, Avg length: {},  Avg reward: {}'.format(i_episode, avg_length, running_reward))
             running_reward = 0
             avg_length = 0
     return ppo
             
 
 class ENV(object):
-    def __init__(self, user_agent=None, system_agent=None, reward_agent=None, stopping_judger=None, config=None):
+    def __init__(self, user_agent=None, system_agent=None, reward_agent=None, reward_truth=None, stopping_judger=None, config=None):
         self.reward_agent = reward_agent
+        self.reward_truth = reward_truth
         self.stopping_judger = stopping_judger
         self.config = config
         self.max_step = config.max_step
@@ -198,7 +212,10 @@ class ENV(object):
             raise ValueError("user_agent and system agent can not be both None or NotNone")
         if user_agent is not None:
             self.policy = user_agent.policy
-            self.env_type = 'user_step'
+            if reward_truth is not None:
+                self.env_type = 'user_step_real_r'
+            else:
+                self.env_type = 'user_step'
         if system_agent is not None:
             self.policy = system_agent.policy
             self.env_type = 'system_step'
@@ -206,21 +223,26 @@ class ENV(object):
 
     def reset(self):
         self.counter = 0
-        state_mean = torch.FloatTensor(1, 10).uniform(-1, 1).to(device)
+        state_mean = torch.FloatTensor(1,self.config.state_dim).uniform_(-1, 1).to(device)
+        if self.env_type == 'user_step' or self.env_type == 'user_step_real_r':
+            action_init = self.policy(state_mean)
+            action_init = self.embedding_act(action_init)
+            state_mean = torch.cat([state_mean, action_init], -1)
         return state_mean
 
     def load_user(self, new_policy):
         self.policy.load_state_dict(new_policy.state_dict())
 
-    def step(self, state=None, action=None, state_next=None):
-        if self.env_type == 'user_step':
-            self.step_user(state=state, action=action, state_next=state_next)
+    def step(self, state=None, action=None, log_prob=None, state_ori=None):
+        # print("step")
+        if self.env_type == 'user_step' or self.env_type == 'user_step_real_r':
+            return self.step_user(state=state, action=action, state_ori=state_ori)
         elif self.env_type == 'system_step':
-            self.step_system(state=state, action=action)
+            return self.step_system(state=state, action=action, log_prob=log_prob)
         else:
             raise ValueError("No such env_type: {}".format(self.env_type))
 
-    def step_system(self, state=None, action=None):
+    def step_system(self, state=None, action=None, log_prob=None):
         # TODO: feed state+action to self.system_policy and get state_next
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
@@ -228,18 +250,22 @@ class ENV(object):
         # Q: how to decide if two states are linkable and how to select a linkable state from the state space?
         # This is just a simplified version without state transition constraints.
 
-        state_action = torch.cat([state, action], -1)
-        reward = self.reward_agent(state)
+        # state = torch.from_numpy(np.stack(state)).to(device=device)        
+        # action = torch.from_numpy(np.stack(action)).to(device=device)     
+        action_embed = self.embedding_act(action)        
+        state_action = torch.cat([state, action_embed], -1)
         if self.counter<self.max_step:
-            next_state = self.policy.infer_action(state_action)
+            next_state = self.policy(state_action)
             is_terminal = False
         else:
-            next_state = copy.deepcopy(state)
+            next_state = state
             is_terminal = True
         self.counter += 1
-        return state, action, next_state, reward, is_terminal
+        reward = self.reward_agent(state, action, next_state, log_prob)  # this is for the first MDP, with log_prob
+        # reward = self.reward_tryth(state)
+        return (state, action, next_state, reward, is_terminal)
 
-    def step_user(self, state=None, action=None, state_next=None):
+    def step_user(self, state=None, action=None, state_ori=None):
         # TODO: feed (state, action, state_next) to self.user_policy and get state_next' (state_next'=(state', action'))
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
@@ -247,16 +273,21 @@ class ENV(object):
         # Q: how to decide if two states are linkable and how to select a linkable state from the state space?
         
         # This is just a simplified version without state transition constraints.
-        reward = self.reward_agent(state)
+        # state=<s, a>, action=s', state_ori = <s>
         if self.counter<self.max_step:
-            next_state_a = self.policy.infer_action(state_next)
+            next_state_a = self.policy(action)
             # TODO: convert a to onehot_embedding with dim=action_num
-            next_state = torch.cat([state_next, next_state_a])
+            next_state_a = self.embedding_act(next_state_a)
+            next_state = torch.cat([action, next_state_a], -1)
             is_terminal = False
         else:
-            next_state = copy.deepcopy(state)
+            next_state = state
             is_terminal = True
         self.counter += 1
+        if self.env_type=='user_step':
+            reward = self.reward_agent.irl(s=state_ori, a=action, next_s=action)    # this is for the second MDP, without log_prob
+        else:
+            reward = self.reward_truth(state_ori)
         return state, action, next_state, reward, is_terminal
 
     def embedding_act(self, labels):
@@ -264,7 +295,7 @@ class ENV(object):
         if type(labels)==list:
             labels = torch.LongTensor(labels)
         y = torch.eye(num_classes) 
-        return y[labels] 
+        return y[labels]
 
 
 

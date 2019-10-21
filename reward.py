@@ -19,30 +19,14 @@ class RewardEstimator(object):
         self.irl = irl_model
         self.bce_loss = nn.BCEWithLogitsLoss()
         self.step = 0
-        self.anneal = args.anneal
+        self.anneal = config.anneal
         self.irl_params = self.irl.parameters()
         self.irl_optim = self.irl.get_optimizer()
-        self.weight_cliping_limit = args.clip
+        self.weight_cliping_limit = config.clip
         
-        self.save_dir = args.save_dir
-        self.save_per_epoch = args.save_per_epoch
-        self.optim_batchsz = args.batchsz
+        self.optim_batchsz = config.batch_size
         self.irl.eval()
-        
-        db = None
-        if pretrain:
-            self.print_per_batch = args.print_per_batch
-            self.data_train = manager.create_dataset_irl('train', args.batchsz, config, db)
-            self.data_valid = manager.create_dataset_irl('valid', args.batchsz, config, db)
-            self.data_test = manager.create_dataset_irl('test', args.batchsz, config, db)
-            self.irl_iter = iter(self.data_train)
-            self.irl_iter_valid = iter(self.data_valid)
-            self.irl_iter_test = iter(self.data_test)
-        elif not inference:
-            self.data_train = manager.create_dataset_irl('train', args.batchsz, config, db)
-            self.data_valid = manager.create_dataset_irl('valid', args.batchsz, config, db)
-            self.irl_iter = iter(self.data_train)
-            self.irl_iter_valid = iter(self.data_valid)
+        self.irl_iter, self.irl_iter_test, self.irl_iter_valid = None, None, None  # these three data pools will be loaded later.
         
     def kl_divergence(self, mu, logvar, istrain):
         klds = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum()
@@ -97,8 +81,6 @@ class RewardEstimator(object):
         gen_loss /= turns
         logging.debug('<<reward estimator>> epoch {}, loss_real:{}, loss_gen:{}'.format(
                 epoch, real_loss, gen_loss))
-        if (epoch+1) % self.save_per_epoch == 0:
-            self.save_irl(self.save_dir, epoch)
         self.irl.eval()
     
     def test_irl(self, batch, epoch, best):
@@ -129,10 +111,7 @@ class RewardEstimator(object):
         logging.debug('<<reward estimator>> validation, epoch {}, loss_real:{}, loss_gen:{}'.format(
                 epoch, real_loss, gen_loss))
         loss = real_loss + gen_loss
-        if loss < best:
-            logging.info('<<reward estimator>> best model saved')
-            best = loss
-            self.save_irl(self.save_dir, 'best')
+
             
         for s, a, next_s in zip(s_chunk, a_chunk, next_s_chunk):
             try:
@@ -205,10 +184,7 @@ class RewardEstimator(object):
             logging.debug('<<reward estimator>> validation, epoch {}, loss_real:{}, loss_gen:{}'.format(
                     epoch, real_loss, gen_loss))
             loss = real_loss + gen_loss
-            if loss < best:
-                logging.info('<<reward estimator>> best model saved')
-                best = loss
-                self.save_irl(self.save_dir, 'best')
+
             return best
         
     def save_irl(self, directory, epoch):
@@ -235,3 +211,5 @@ class RewardEstimator(object):
         # r = f(s, a, s') - log_p(a|s)
         reward = (weight - log_pi).squeeze(-1)
         return reward
+    def forward(self, s, a, next_s, log_pi):
+        return self.estimate(s, a, next_s, log_pi)

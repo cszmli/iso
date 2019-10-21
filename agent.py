@@ -2,11 +2,14 @@ import torch
 import random
 import numpy as np 
 import copy 
+import logging
 from ppo import PPOEngine, ENV, PPO, Memory, Data_Generator
 from utils import cfg
-from network import RewardModule, ActorCriticContinuous, ActorCriticDiscrete
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from network import RewardModule, RewardTruth, ActorCriticContinuous, ActorCriticDiscrete
 from reward import RewardEstimator
+from utils import init_logging_handler
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class AIRL(object):
     def __init__(self, config=None, user_agent=None, user_reward=None, system_env=None, manager=None):
@@ -20,18 +23,18 @@ class AIRL(object):
         self.reward_agent = user_reward
         self.env = system_env
         self.manager = manager
-        self.expert_data_train = self.creat_expert_data()
 
 
-    def creat_expert_data(self):
-        #raise NotImplementedError("TODO: creat the expert data for the reward function learning")
-        self.data_train = self.manager.create_dataset_irl('train', self.config)
-        self.data_valid = self.manager.create_dataset_irl('valid', self.config)
-        self.data_test = self.manager.create_dataset_irl('test', self.config)
-        self.irl_iter = iter(self.data_train)
-        self.irl_iter_valid = iter(self.data_valid)
-        self.irl_iter_test = iter(self.data_test)
-        return self.irl_iter, self.data_train
+    def load_expert_data(self, expert_data):
+        self.reward_agent.irl_iter = iter(expert_data['train'])
+        self.reward_agent.irl_iter_valid = iter(expert_data['valid'])
+        self.reward_agent.irl_iter_test = iter(expert_data['test'])
+    def clean_expert_data(self):
+        del self.reward_agent.irl_iter
+        del self.reward_agent.irl_iter_valid
+        del self.reward_agent.irl_iter_test
+        self.reward_agent.irl_iter, self.reward_agent.irl_iter_valid, self.reward_agent.irl_iter_test = None, None, None
+
 
     def train(self):
         # rewrite the PPOEngine function and add IRL training step
@@ -99,11 +102,12 @@ class AIRL(object):
         
 class InteractAgent(object):
     # this is for the whole trianing process: reward shaping, system optimization
-    def __init__(self, config=None, user_agent=None, user_reward=None, system_agent=None):
+    def __init__(self, config=None, user_agent=None, user_reward=None, system_agent=None, reward_groundtruth=None):
         self.config = config
         self.user_agent = user_agent # this should be a PPO agent with discrete action space
         self.reward_agent = user_reward  # this is an Reward Estimator taking as input the state representation
         self.system_agent = system_agent # this should be a PPO agent with continuous action space
+        self.reward_oracle = reward_groundtruth
         self.env1 = ENV(system_agent=self.system_agent, reward_agent=self.reward_agent, stopping_judger=None, config=config)
         self.airl = AIRL(config=config, 
                          user_agent=copy.deepcopy(self.user_agent), 
@@ -121,16 +125,23 @@ class InteractAgent(object):
         # TODO: load reward_agent; load Env with user policy
         raise NotImplementedError
 
-    def optimizer_optimal_user_policy(self, reward_truth=None, system_agent=None):
+    def optimizer_user_policy(self, reward_truth=None, system_agent=None):
         # This function is used to optimize the user policy given ground truth reward function and a system policy (env)
         # reward_truth is not the reward agent and it is just a randomly initialized MLP which takes state as input and output reward value.
         env = ENV(system_agent=system_agent, reward_agent=reward_truth, stopping_judger=None, config=self.config)
-        ppo = PPOEngine(ppo=self.system_agent, env=env)
-        return ppo
+        ppo = PPOEngine(ppo=self.user_agent, env=env, config=self.config)
+        return ppo, env
 
-    def generate_expert_data(self, user_policy, env):
-        memory = Data_Generator(ppo, env, self.config)
-        return memory
+    def generate_load_expert_data(self):
+        logging.info("Training user policy with true reward and the initial system")
+        ppo, env = self.optimizer_user_policy(reward_truth=self.reward_oracle, system_agent=self.system_agent)
+        logging.info("Generating expert data and load them")
+        train = Data_Generator(ppo, env, self.config, 'train')
+        valid = Data_Generator(ppo, env, self.config, 'valid')
+        test = Data_Generator(ppo, env, self.config, 'test')
+        memory = {'train':train, 'valid':valid, 'test':test}
+        self.airl.load_expert_data(memory)
+        logging.info("Generating data and loading data finished")
 
         
 
@@ -142,26 +153,43 @@ class InteractAgent(object):
 
     def system_train(self, ):
         #TODO: update the system_policy (PPO) in the second MDP  
-        env2 = self.env2
-        ppo = PPOEngine(ppo=self.system_agent, env=env2)
+        user_ppo, env = self.optimizer_user_policy(reward_truth=self.reward_oracle, system_agent=self.system_agent)
+        logging.info("user policy training stop here")
+        env2 = ENV(user_agent=user_ppo, reward_agent=self.reward_oracle, reward_truth=self.reward_oracle, stopping_judger=None, config=config)
+        ppo = PPOEngine(ppo=self.system_agent, env=env2, config=self.config)
+        logging.info("system policy training stop here")
+        user_ppo, env = self.optimizer_user_policy(reward_truth=self.reward_oracle, system_agent=ppo)
+        
         self.system_agent = ppo
 
 
 
 def main(config):
+    init_logging_handler(config.log_dir)
+    logging.info("Start initializing")
     irl_model = RewardModule(config).to(device=device)   # this is the reward model only, which will be fed to RewardEstimator.
     reward_agent = RewardEstimator(config=config, irl_model=irl_model)
-
+    
     user_policy = ActorCriticDiscrete(config).to(device=device)
     user_ppo = PPO(config, user_policy)
 
     system_policy = ActorCriticContinuous(config).to(device=device)
     system_ppo = PPO(config, system_policy)
-    
+
+    reward_true = RewardTruth(config).to(device=device)  # this is the ground truth which will not be updated once randomly initialized.
+    logging.info("Finish building module: reward agent, user ppo, system ppo")
+
     main_agent = InteractAgent(config=config,
                                user_agent=user_ppo,
                                user_reward=reward_agent,
-                               system_agent=system_ppo)
+                               system_agent=system_ppo,
+                               reward_groundtruth=reward_true
+                               )
+    
+    # main_agent.generate_load_expert_data()
+    main_agent.system_train()
+    raise ValueError("stop here")
+
 
 
 

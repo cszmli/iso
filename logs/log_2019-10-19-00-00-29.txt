@@ -1,0 +1,3 @@
+INFO:root:Start initializing
+INFO:root:Finish building module: reward agent, user ppo, system ppo
+INFO:root:Training user policy with true reward and the initial system
