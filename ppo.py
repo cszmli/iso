@@ -247,10 +247,10 @@ class ENV(object):
     def load_user(self, new_policy):
         self.policy.load_state_dict(new_policy.state_dict())
 
-    def step(self, state=None, action=None, log_prob=None, state_ori=None):
+    def step(self, state=None, action=None, log_prob=None, state_ori=None, action_ori=None):
         # print("step")
         if self.env_type == 'user_step' or self.env_type == 'user_step_real_r':
-            return self.step_user(state=state, action=action, state_ori=state_ori)
+            return self.step_user(state=state, action=action, state_ori=state_ori, action_ori=action_ori)
         elif self.env_type == 'system_step':
             return self.step_system(state=state, action=action, log_prob=log_prob)
         else:
@@ -279,7 +279,7 @@ class ENV(object):
         # reward = self.reward_tryth(state)
         return (state, action, next_state, reward, is_terminal)
 
-    def step_user(self, state=None, action=None, state_ori=None):
+    def step_user(self, state=None, action=None, state_ori=None, action_ori=None):
         # TODO: feed (state, action, state_next) to self.user_policy and get state_next' (state_next'=(state', action'))
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
@@ -299,7 +299,8 @@ class ENV(object):
             is_terminal = True
         self.counter += 1
         if self.env_type=='user_step':
-            reward = self.reward_agent.irl(s=state_ori, a=action, next_s=action)    # this is for the second MDP, without log_prob
+            log_prob_s_a = self.reward_agent.irl.evaluate(state_ori, action_ori).detach()
+            reward = self.reward_agent.irl(s=state_ori, a=action_ori, next_s=action, log_pi=log_prob_s_a)    # this is for the second MDP, without log_prob
         else:
             reward = self.reward_truth(state_ori)
         return state, action, next_state, reward, is_terminal
