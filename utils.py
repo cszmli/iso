@@ -36,6 +36,7 @@ class cfg():
         self.K_epochs = 80               # update policy for K epochs
         self.eps_clip = 0.2              # clip parameter for PPO
         self.log_dir = 'logs'
+        self.kl_factor = 0.01
 
 
 

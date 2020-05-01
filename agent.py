@@ -35,6 +35,9 @@ class AIRL(object):
         del self.reward_agent.irl_iter_test
         self.reward_agent.irl_iter, self.reward_agent.irl_iter_valid, self.reward_agent.irl_iter_test = None, None, None
 
+    def train_warmup(self):
+        raise NotImplementedError
+
 
     def train(self):
         # rewrite the PPOEngine function and add IRL training step
@@ -174,7 +177,11 @@ def main(config):
     user_ppo = PPO(config, user_policy)
 
     system_policy = ActorCriticContinuous(config).to(device=device)
-    system_ppo = PPO(config, system_policy)
+
+    init_system_policy = ActorCriticContinuous(config).to(device=device)
+    init_system_policy.load_state_dict(system_policy.state_dict())
+
+    system_ppo = PPO(config, system_policy, init_policy=init_system_policy)
 
     reward_true = RewardTruth(config).to(device=device)  # this is the ground truth which will not be updated once randomly initialized.
     logging.info("Finish building module: reward agent, user ppo, system ppo")
@@ -187,7 +194,8 @@ def main(config):
                                )
     
     # main_agent.generate_load_expert_data()
-    main_agent.system_train()
+    for _ in range(3):
+        main_agent.system_train()
     raise ValueError("stop here")
 
 

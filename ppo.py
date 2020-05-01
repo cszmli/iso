@@ -44,18 +44,21 @@ class ExpertMemory(object):
 
 class PPO(object):
     # def __init__(self, config, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip):
-    def __init__(self, config, policy_):
+    def __init__(self, config, policy_, init_policy=None):
         self.lr = config.lr
         self.betas = config.betas
         self.gamma = config.gamma
         self.eps_clip = config.eps_clip
         self.K_epochs = config.K_epochs
+        self.kl_factor = config.kl_factor
         
         self.policy = policy_
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.lr, betas=self.betas)
         
         self.policy_old = policy_
         self.policy_old.load_state_dict(self.policy.state_dict())
+
+        self.initial_policy = init_policy
         
         self.MseLoss = nn.MSELoss()
     
@@ -98,10 +101,21 @@ class PPO(object):
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
             loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
+            loss = loss.mean()
             
+
+            if self.initial_policy is not None:
+                mean_old = self.initial_policy(old_states).detach()
+                mean_new = self.policy(old_states)
+                kl = torch.pow(mean_new-mean_old, 2)  # the \sigma is fixed here
+                # init_logprobs, _, _ = self.initial_policy.evaluate(old_states, old_actions)
+                # init_logprobs = init_logprobs.detach()
+                # # init_logprobs = old_logprobs.detach()
+                # kl = torch.exp(init_logprobs) * (init_logprobs - logprobs)
+                loss += kl.mean() * self.kl_factor
             # take gradient step
             self.optimizer.zero_grad()
-            loss.mean().backward()
+            loss.backward()
             self.optimizer.step()
             
         # Copy new weights into old policy:
@@ -146,7 +160,7 @@ def Data_Generator(ppo, env, config, data_id):
 def PPOEngine(ppo, env, config):
     ############## Hyperparameters ##############
     log_interval = 100           # print avg reward in the interval
-    max_episodes = 100000        # max training episodes
+    max_episodes = 10000        # max training episodes
     max_timesteps = 1500        # max timesteps in one episode
     
     update_timestep = 4000      # update policy every n timesteps

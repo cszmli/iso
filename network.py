@@ -132,8 +132,20 @@ class ActorCriticContinuous(BaseModel):
         action_logprobs = dist.log_prob(torch.squeeze(action))
         dist_entropy = dist.entropy()
         state_value = self.critic(state)
-        
         return action_logprobs, torch.squeeze(state_value), dist_entropy
+    
+    def prob_evaluate(self, state, action):   
+        action_mean = torch.squeeze(self.actor(state))
+        
+        action_var = self.action_var.expand_as(action_mean)
+        cov_mat = torch.diag_embed(action_var).to(device)
+        
+        dist = MultivariateNormal(action_mean, cov_mat)
+        
+        action_logprobs = dist.log_prob()
+        dist_entropy = dist.entropy()
+        state_value = self.critic(state)
+        return action_logprobs
 
 class ActorCriticDiscrete(BaseModel):  # f(state) -> action
     def __init__(self, config):
