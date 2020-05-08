@@ -1,0 +1,65 @@
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward 
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 10 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward
+
+
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.001 --use_airl_user  --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.01 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward
+--master_epochs 10 --state_dim 50 --action_dim 10 --max_episodes 20000 --kl_factor 0.1 --use_airl_user --use_airl_reward

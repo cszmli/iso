@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=iso
-#SBATCH --output=./slurm_logs/iso_debug.log
+#SBATCH --output=./slurm_logs/iso_debug_test.log
 #SBATCH -p cpu
 #SBATCH --mem=8G
 #SBATCH --time=15:10:00

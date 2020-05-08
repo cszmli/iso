@@ -22,12 +22,19 @@ class RewardEstimator(object):
         self.anneal = config.anneal
         self.irl_params = self.irl.parameters()
         self.irl_optim = self.irl.get_optimizer()
-        self.weight_cliping_limit = config.clip
-        
+        self.weight_cliping_limit = config.clamp
+        self.config = config
         self.optim_batchsz = config.batch_size
         self.irl.eval()
         self.irl_iter, self.irl_iter_test, self.irl_iter_valid = None, None, None  # these three data pools will be loaded later.
-        
+
+    def embedding_act(self, labels):
+        num_classes = self.config.action_dim
+        if type(labels)==list:
+            labels = torch.LongTensor(labels)
+        y = torch.eye(num_classes) 
+        return y[labels]
+
     def kl_divergence(self, mu, logvar, istrain):
         klds = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).sum()
         beta = min(self.step/self.anneal, 1) if istrain else 1
@@ -37,8 +44,10 @@ class RewardEstimator(object):
         s_real, a_real, next_s_real = data_real
         s, a, next_s = data_gen
             
-        # train with real data
-        weight_real = self.irl(s_real, a_real, next_s_real)
+        a = self.embedding_act(a)
+        a_real = self.embedding_act(a_real)
+
+        weight_real = self.irl(s_real.detach(), a_real.float().detach(), next_s_real.detach())
         loss_real = -weight_real.mean()
 
         # train with generated data
@@ -48,15 +57,16 @@ class RewardEstimator(object):
     
     def train_irl(self, batch, epoch):
         self.irl.train()
-        input_s = torch.from_numpy(np.stack(batch.state)).to(device=device)
-        input_a = torch.from_numpy(np.stack(batch.action)).to(device=device)
-        input_next_s = torch.from_numpy(np.stack(batch.next_state)).to(device=device)
+        input_s = torch.stack(batch.states).detach().to(device=device)
+        input_a = torch.stack(batch.actions).detach().to(device=device)
+        # input_a = self.embedding_act(input_a)
+        input_next_s = torch.stack(batch.states_next).detach().to(device=device)
         batchsz = input_s.size(0)
         
         real_loss, gen_loss = 0., 0.
         turns = batchsz // self.optim_batchsz
         s_chunk = torch.chunk(input_s, turns)
-        a_chunk = torch.chunk(input_a.float(), turns)
+        a_chunk = torch.chunk(input_a, turns)
         next_s_chunk = torch.chunk(input_next_s, turns)
         
         for s, a, next_s in zip(s_chunk, a_chunk, next_s_chunk):
@@ -79,20 +89,22 @@ class RewardEstimator(object):
             
         real_loss /= turns
         gen_loss /= turns
-        logging.debug('<<reward estimator>> epoch {}, loss_real:{}, loss_gen:{}'.format(
+        if epoch%2==0:
+            logging.debug('<<reward estimator>> epoch {}, loss_real:{}, loss_gen:{}'.format(
                 epoch, real_loss, gen_loss))
         self.irl.eval()
     
     def test_irl(self, batch, epoch, best):
-        input_s = torch.from_numpy(np.stack(batch.state)).to(device=DEVICE)
-        input_a = torch.from_numpy(np.stack(batch.action)).to(device=DEVICE)
-        input_next_s = torch.from_numpy(np.stack(batch.next_state)).to(device=DEVICE)
+        input_s = torch.stack(batch.states).detach().to(device=DEVICE)
+        input_a = torch.stack(batch.actions).detach().to(device=DEVICE)
+        # input_a = self.embedding_act(input_a)
+        input_next_s = torch.stack(batch.states_next).detach().to(device=DEVICE)
         batchsz = input_s.size(0)
         
         real_loss, gen_loss = 0., 0.
         turns = batchsz // self.optim_batchsz
         s_chunk = torch.chunk(input_s, turns)
-        a_chunk = torch.chunk(input_a.float(), turns)
+        a_chunk = torch.chunk(input_a, turns)
         next_s_chunk = torch.chunk(input_next_s, turns)
         
         for s, a, next_s in zip(s_chunk, a_chunk, next_s_chunk):
@@ -130,22 +142,23 @@ class RewardEstimator(object):
                 epoch, real_loss, gen_loss))
         return best
     
-    def update_irl(self, inputs, batchsz, epoch, best=None):
+    def update_irl(self, inputs, batchsz, epoch, backward):
         """
         train the reward estimator (together with encoder) using cross entropy loss (real, mixed, generated)
         Args:
             inputs: (s, a, next_s)
         """
-        backward = True if best is None else False
+        # backward = True if best is None else False
         if backward:
             self.irl.train()
-        input_s, input_a, input_next_s = inputs
+        input_s, input_a, input_next_s = torch.stack(inputs.states), torch.stack(inputs.actions), torch.stack(inputs.states_next)
+        # input_a = self.embedding_act(input_a)
         
         real_loss, gen_loss = 0., 0.
         turns = batchsz // self.optim_batchsz
-        s_chunk = torch.chunk(input_s, turns)
-        a_chunk = torch.chunk(input_a.float(), turns)
-        next_s_chunk = torch.chunk(input_next_s, turns)
+        s_chunk = torch.chunk(input_s.detach(), turns)
+        a_chunk = torch.chunk(input_a.detach(), turns)
+        next_s_chunk = torch.chunk(input_next_s.detach(), turns)
         
         for s, a, next_s in zip(s_chunk, a_chunk, next_s_chunk):
             if backward:
@@ -177,15 +190,17 @@ class RewardEstimator(object):
         real_loss /= turns
         gen_loss /= turns
         if backward:
-            logging.debug('<<reward estimator>> epoch {}, loss_real:{}, loss_gen:{}'.format(
-                    epoch, real_loss, gen_loss))
+            if epoch%10==0:
+                logging.debug('<<reward estimator>> epoch {}, loss_real:{}, loss_gen:{}'.format(
+                        epoch, real_loss, gen_loss))
             self.irl.eval()
         else:
-            logging.debug('<<reward estimator>> validation, epoch {}, loss_real:{}, loss_gen:{}'.format(
-                    epoch, real_loss, gen_loss))
+            if epoch%10==0:
+                logging.debug('<<reward estimator>> validation, epoch {}, loss_real:{}, loss_gen:{}'.format(
+                        epoch, real_loss, gen_loss))
             loss = real_loss + gen_loss
 
-            return best
+            # return best
         
     def save_irl(self, directory, epoch):
         if not os.path.exists(directory):
@@ -204,12 +219,14 @@ class RewardEstimator(object):
         """
         infer the reward of state action pair with the estimator
         """
+        # logging.info("{}, {}, {}".format(s.shape, a.shape, log_pi.shape))
         weight = self.irl(s, a.float(), next_s)
-        logging.debug('<<reward estimator>> weight {}'.format(weight.mean().item()))
-        logging.debug('<<reward estimator>> log pi {}'.format(log_pi.mean().item()))
+        # logging.debug('<<reward estimator>> weight {}'.format(weight.mean().item()))
+        # logging.debug('<<reward estimator>> log pi {}'.format(log_pi.mean().item()))
         # see AIRL paper
         # r = f(s, a, s') - log_p(a|s)
-        reward = (weight - log_pi).squeeze(-1)
+        # logging.info(weight.shape)
+        reward = (weight - log_pi).view(-1)
         return reward
-    def forward(self, s, a, next_s, log_pi):
+    def forward(self, s, a, next_s, log_pi):  # remove this func later
         return self.estimate(s, a, next_s, log_pi)

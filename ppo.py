@@ -5,8 +5,25 @@ import numpy as np
 from network import ActorCriticContinuous, ActorCriticDiscrete
 import copy
 import logging
+import torch.utils.data as data
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+class DatasetIrl(data.Dataset):
+    def __init__(self, s_s, a_s, next_s_s):
+        self.s_s = s_s
+        self.a_s = a_s
+        self.next_s_s = next_s_s
+        self.num_total = len(s_s)
+    
+    def __getitem__(self, index):
+        s = self.s_s[index]
+        a = self.a_s[index]
+        next_s = self.next_s_s[index]
+        return s, a, next_s
+    
+    def __len__(self):
+        return self.num_total   
 
 class Memory(object):
     def __init__(self):
@@ -16,6 +33,7 @@ class Memory(object):
         self.rewards = []
         self.is_terminals = []
         self.states_next = []
+
 
 
     
@@ -54,6 +72,8 @@ class PPO(object):
         
         self.policy = policy_
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.lr, betas=self.betas)
+        self.optimizer_actor = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas)
+        self.optimizer_critic = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas)
         
         self.policy_old = policy_
         self.policy_old.load_state_dict(self.policy.state_dict())
@@ -80,6 +100,10 @@ class PPO(object):
             rewards.insert(0, discounted_reward)
         
         # Normalizing the rewards:
+        # logging.info(rewards)
+        # if self.initial_policy is not None:
+        #     rewards = torch.stack(rewards).to(device)
+        # else:
         rewards = torch.tensor(rewards).to(device)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
         
@@ -87,7 +111,7 @@ class PPO(object):
         old_states = torch.squeeze(torch.stack(memory.states).to(device)).detach()
         old_actions = torch.squeeze(torch.stack(memory.actions).to(device)).detach()
         old_logprobs = torch.squeeze(torch.stack(memory.logprobs)).to(device).detach()
-        
+        # logging.info("{}, {}".format(rewards.shape, old_states.shape))
         # Optimize policy for K epochs:
         for _ in range(self.K_epochs):
             # Evaluating old actions and values :
@@ -100,7 +124,7 @@ class PPO(object):
             advantages = rewards - state_values.detach()   
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
-            loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.001*dist_entropy
             loss = loss.mean()
             
 
@@ -127,7 +151,7 @@ def Data_Generator(ppo, env, config, data_id):
     data_size = config.data_size[data_id]        # expert data size
     max_timesteps = config.max_step        # max timesteps in one episode
 
-    memory = []
+    mem_s, mem_a, mem_s_next = [], [], []
     ############### Training ####################
     # logging variables
     running_reward = 0
@@ -142,28 +166,29 @@ def Data_Generator(ppo, env, config, data_id):
             # Running policy_old:
             action = ppo.infer_action(state)
             state, action, next_state, reward, done = env.step(state=state, action=action)
+
+            mem_s.append(state.detach())
+            mem_a.append(action.detach())
+            mem_s_next.append(next_state.detach())
+
             state = next_state
-            # memory.states.append(state)
-            # memory.actions.append(action)
-            # memory.states_next.append(next_state)
-            # memory.rewards.append(reward)
-            # memory.is_terminals.append(done)
-            memory.append((state, action, next_state))
             
             if done:
                 break
-    return memory
+    saved_data = DatasetIrl(mem_s, mem_a, mem_s_next)
+    return saved_data 
 
             
 
 
 def PPOEngine(ppo, env, config):
     ############## Hyperparameters ##############
-    log_interval = 100           # print avg reward in the interval
-    max_episodes = 10000        # max training episodes
-    max_timesteps = 1500        # max timesteps in one episode
+    log_interval = 1000           # print avg reward in the interval
+    max_episodes = config.max_episodes       # max training episodes
+    max_timesteps = 30        # max timesteps in one episode, it is also limited by the config.max_step
     
-    update_timestep = 4000      # update policy every n timesteps
+    update_timestep = 2000      # update policy every n timesteps
+    # update_timestep = 400      # update policy every n timesteps
     
     memory = Memory()
     ############### Training ####################
@@ -171,7 +196,8 @@ def PPOEngine(ppo, env, config):
     running_reward = 0
     avg_length = 0
     time_step = 0
-    
+    action_ori=None
+    start_updating = False
     # training loop
     for i_episode in range(1, max_episodes+1):
         state = env.reset()
@@ -180,11 +206,19 @@ def PPOEngine(ppo, env, config):
             # Running policy_old:
             action = ppo.select_action(state, memory)
             log_prob = memory.logprobs[-1]
-            state_ori = state[:,:config.state_dim]
+            # state_ori = state[:,:config.state_dim]
+            state_ori = state
+            if len(state[0])>config.state_dim:
+                state_ori, action_ori = torch.split(state, config.state_dim, dim=-1)
+                # logging.info(state_ori)
+                # logging.info(action_ori)
+                # action_ori = env.embed2id(action_ori)
+                # action_ori = state[:,config.state_dim:]
             state, action, next_state, reward, done = env.step(state=state,
                                                                action=action, 
                                                                log_prob=log_prob,
-                                                               state_ori=state_ori)
+                                                               state_ori=state_ori,
+                                                               action_ori=action_ori)
             # Saving reward and is_terminals:
             # print("###################")
             # print(state, action, next_state, reward)
@@ -194,7 +228,8 @@ def PPOEngine(ppo, env, config):
             state = next_state
             # update if its time
             if time_step % update_timestep == 0:
-                ppo.update(memory)
+                if start_updating:
+                    ppo.update(memory)
                 memory.clear_memory()
                 time_step = 0
             running_reward += reward
@@ -204,10 +239,11 @@ def PPOEngine(ppo, env, config):
         avg_length += t
         # logging
         if i_episode % log_interval == 0:
+            start_updating = True
             avg_length = avg_length/log_interval
             running_reward = running_reward/log_interval
             
-            logging.info('Episode {}, Avg length: {},  Avg reward: {}'.format(i_episode, avg_length, running_reward))
+            logging.info('Episode {}, Avg length: {},  Avg reward: {}'.format(i_episode, avg_length, running_reward.item()))
             running_reward = 0
             avg_length = 0
     return ppo
@@ -226,10 +262,10 @@ class ENV(object):
             raise ValueError("user_agent and system agent can not be both None or NotNone")
         if user_agent is not None:
             self.policy = user_agent.policy
-            if reward_truth is not None:
-                self.env_type = 'user_step_real_r'
-            else:
+            if reward_agent is not None:
                 self.env_type = 'user_step'
+            else:
+                self.env_type = 'user_step_real_r'
         if system_agent is not None:
             self.policy = system_agent.policy
             self.env_type = 'system_step'
@@ -257,6 +293,8 @@ class ENV(object):
             raise ValueError("No such env_type: {}".format(self.env_type))
 
     def step_system(self, state=None, action=None, log_prob=None):
+        # this is for updating the user policy, so the reward value is from ground-truth; 
+        # for the AIRL case, the estimated reward will be calculated in the airl train func.
         # TODO: feed state+action to self.system_policy and get state_next
         # TODO: feed state + action + state_next to a judger and get if the tuple is linkable: 
         # TODO: if yes, return state_next, reward(state), Terminal
@@ -275,7 +313,8 @@ class ENV(object):
             next_state = state
             is_terminal = True
         self.counter += 1
-        reward = self.reward_agent(state, action, next_state, log_prob)  # this is for the first MDP, with log_prob
+        # reward = self.reward_agent(state, action, next_state, log_prob)  # this is for the first MDP, with log_prob
+        reward = self.reward_truth(s=state, a=action_embed)  # here we only return the true reward; the estimated reward will be calculated outside
         # reward = self.reward_tryth(state)
         return (state, action, next_state, reward, is_terminal)
 
@@ -288,6 +327,7 @@ class ENV(object):
         
         # This is just a simplified version without state transition constraints.
         # state=<s, a>, action=s', state_ori = <s>
+        assert state is not None and action is not None and state_ori is not None and action_ori is not None
         if self.counter<self.max_step:
             next_state_a = self.policy(action)
             # TODO: convert a to onehot_embedding with dim=action_num
@@ -299,10 +339,13 @@ class ENV(object):
             is_terminal = True
         self.counter += 1
         if self.env_type=='user_step':
-            log_prob_s_a = self.reward_agent.irl.evaluate(state_ori, action_ori).detach()
-            reward = self.reward_agent.irl(s=state_ori, a=action_ori, next_s=action, log_pi=log_prob_s_a)    # this is for the second MDP, without log_prob
+            act_id = self.embed2id(action_ori.view(-1))
+            # logging.info(act_id)
+            log_prob_s_a, _, _ = self.policy.evaluate(state_ori, act_id)
+            # action_ori = self.embedding_act(action_ori)
+            reward = self.reward_agent.estimate(s=state_ori, a=action_ori, next_s=action, log_pi=log_prob_s_a).view(-1)   # this is for the second MDP, without log_prob
         else:
-            reward = self.reward_truth(state_ori)
+            reward = self.reward_truth(state_ori, action_ori)
         return state, action, next_state, reward, is_terminal
 
     def embedding_act(self, labels):
@@ -311,6 +354,9 @@ class ENV(object):
             labels = torch.LongTensor(labels)
         y = torch.eye(num_classes) 
         return y[labels]
+    
+    def embed2id(self, embedding):
+        return (embedding==1).nonzero().view(-1)
 
 
 

@@ -177,8 +177,15 @@ class ActorCriticDiscrete(BaseModel):  # f(state) -> action
         memory.states.append(state)
         memory.actions.append(action)
         memory.logprobs.append(action_logprob)
-        
         return action.detach()
+
+    def imitate(self, state, action):
+        action_weights = self.actor(state)
+        a_probs = torch.softmax(action_weights, -1)
+        dist = Categorical(a_probs)
+        action_logprob = dist.log_prob(action)
+        return -action_logprob.mean()
+
     
     def evaluate(self, state, action):   
         action_weights = self.actor(state)
@@ -199,7 +206,7 @@ class RewardModule(BaseModel):
     def __init__(self, config):
         super(RewardModule, self).__init__(config)
         self.gamma = config.gamma
-        self.g = nn.Sequential(nn.Linear(config.state_dim, config.state_dim),
+        self.g = nn.Sequential(nn.Linear(config.state_dim+config.action_dim, config.state_dim),
                                nn.ReLU(),
                                nn.Linear(config.state_dim, 1))
         self.h = nn.Sequential(nn.Linear(config.state_dim, config.state_dim),
@@ -214,12 +221,12 @@ class RewardModule(BaseModel):
         :param next_s: [b, s_dim]
         :return:  [b, 1]
         """
-        weights = self.g(s) + self.gamma * self.h(next_s) - self.h(s)
+        weights = self.g(torch.cat([s,a],-1)) + self.gamma * self.h(next_s) - self.h(s)
         return weights
 
-    def reward_true(self, s=None):
+    # def reward_true(self, s=None):
         # this func is for the ground truth reward. The ground truth will be sampled separately from the reward estimator
-        return self.g(s)
+        # return self.g(s)
 
 
 class RewardTruth(BaseModel):
@@ -242,6 +249,25 @@ class RewardTruth(BaseModel):
         # this func is for the ground truth reward. The ground truth will be sampled separately from the reward estimator
         return self.g(s)
  
+class RewardTruthSampled(BaseModel):
+    """
+    label: 1 for real, 0 for generated
+    f(s, a, s') = g(s) + \gamma * h(s') - h(s) 
+    """
+    def __init__(self, config):
+        super(RewardTruthSampled, self).__init__(config)
+        self.g = nn.Sequential(nn.Linear(config.state_dim + config.action_dim, config.state_dim),
+                               nn.ReLU(),
+                               nn.Linear(config.state_dim, 1),
+                               nn.Sigmoid())
+
+    def forward(self, s=None, a=None, next_s=None, log_prob=None):
+        # return torch.mean(s*s)
+        return self.reward_true(s,a).view(-1)
+
+    def reward_true(self, s=None, a=None):
+        # this func is for the ground truth reward. The ground truth will be sampled separately from the reward estimator
+        return self.g(torch.cat([s,a],-1))
 
 ##########################################################
 ##########################################################

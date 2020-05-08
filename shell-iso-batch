@@ -1,0 +1,15 @@
+#!/bin/bash
+#SBATCH --job-name=iso
+#SBATCH --output=./slurm_logs/iso_%A_%a.log
+#SBATCH --array=21-65%15
+#SBATCH --nodes=1
+#SBATCH -p cpu
+#SBATCH --mem=8G
+#SBATCH --time=12:20:00
+
+hostname
+source activate py36
+
+HPARAMS_FILE=params
+python -u agent.py $(head -$SLURM_ARRAY_TASK_ID $HPARAMS_FILE | tail -1)
+
