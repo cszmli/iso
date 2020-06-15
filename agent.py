@@ -447,8 +447,8 @@ def main(config):
 
     system_ppo = PPO(config, system_policy, init_policy=init_system_policy)
 
-    reward_true = RewardTruth(config).to(device=device)  # this is the ground truth which will not be updated once randomly initialized.
-    # reward_true = RewardTruthSampled(config).to(device)
+    # reward_true = RewardTruth(config).to(device=device)  # this is the ground truth which will not be updated once randomly initialized.
+    reward_true = RewardTruthSampled(config).to(device)
     reward_true = init_net(reward_true)
     logging.info("Finish building module: reward agent, user ppo, system ppo")
 

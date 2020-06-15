@@ -256,14 +256,14 @@ class RewardTruthSampled(BaseModel):
     """
     def __init__(self, config):
         super(RewardTruthSampled, self).__init__(config)
-        self.g = nn.Sequential(nn.Linear(config.state_dim + config.action_dim, config.state_dim),
-                               nn.ReLU(),
-                               nn.Linear(config.state_dim, 1),
+        self.g = nn.Sequential(nn.Linear(config.state_dim, 1),
+                            #    nn.ReLU(),
+                            #    nn.Linear(config.state_dim, 1),
                                nn.Sigmoid())
 
     def forward(self, s=None, a=None, next_s=None, log_prob=None):
-        # return torch.mean(s*s)
-        return self.reward_true(s,a).view(-1)
+        return self.g(s).view(-1)
+        # return self.reward_true(s,a).view(-1)
 
     def reward_true(self, s=None, a=None):
         # this func is for the ground truth reward. The ground truth will be sampled separately from the reward estimator
